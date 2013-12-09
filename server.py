@@ -23,6 +23,7 @@ def server(charset, packet_size, bind_address, port):
     server.listen(5)
 
     clients = []
+    addresses = {}
     current_packet = 0
     exit = False
 
@@ -41,6 +42,7 @@ def server(charset, packet_size, bind_address, port):
                 client, (ip, port) = server.accept()
                 client.setblocking(False)
                 clients.append(client)
+                addresses[client] = '%s:%s' % (ip, port)
                 print('client %s:%s joined' % (ip, port))
 
                 # send charset
@@ -55,15 +57,15 @@ def server(charset, packet_size, bind_address, port):
             else:
                 data = s.recv(1024)
                 if data: # end of a work
-                    if data[0] == 0:
-                        # send work
-                        print('done: %s passwords - current: %s' % (current_packet, password_by_index(current_packet, charset)))
-                        s.sendall(pack('<Q', current_packet))
-                        current_packet += packet_size
-                    else:
-                        print('success !')
-                        print(data[1:].decode('latin'))
-                        exit = True
+                    for byte in data:
+                        if byte == 0:
+                            # send work
+                            print('done: %s passwords - current: %s' % (current_packet, password_by_index(current_packet, charset)))
+                            s.sendall(pack('<Q', current_packet))
+                            current_packet += packet_size
+                        else:
+                            print('passphrase found on %s !' % addresses[s])
+                            exit = True
                 else:
                     print('client disconnected')
                     clients.remove(s)

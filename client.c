@@ -3,7 +3,6 @@
  *
  * compile with :
  *   gcc -Wall -O2 -o client client.c
- * 
  */
 #include <stdio.h>
 #include <string.h>
@@ -17,6 +16,13 @@
 #include <unistd.h>
 #include <netdb.h>
 
+
+volatile int child_alive;
+
+static void child_dead(int signo)
+{
+    child_alive = 0;
+}
 
 void password_by_index(unsigned long long index, char* password, const char* charset, unsigned int charset_length)
 {
@@ -78,6 +84,7 @@ int main(int argc, char **argv)
     int pipe_in[2];
     int pipe_out[2];
     FILE* command_in;
+    struct sigaction action;
 
     /*******************
      * Parse arguments *
@@ -199,13 +206,23 @@ int main(int argc, char **argv)
         exit(1);
     }
 
+    child_alive = 1;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+    action.sa_handler = child_dead;
+    if(sigaction(SIGCHLD, &action, NULL) == -1)
+    {
+        fprintf(stderr, "error: an error occured when setting a signal handler\n");
+        close(sock);
+        exit(1);
+    }
     command_in = fdopen(pipe_in[1], "w");
 
     /*************
      * Main loop *
      *************/
 
-    while(1)
+    while(child_alive)
     {
         /* receive work */
         current_packet = 0L;
@@ -225,6 +242,9 @@ int main(int argc, char **argv)
         {
             fprintf(command_in, "%s\n", password);
             next_password(password, charset, charset_length, charset_next_char);
+
+            if(!child_alive)
+                break;
         }
 
         /* send response */
@@ -235,6 +255,17 @@ int main(int argc, char **argv)
             close(sock);
             exit(1);
         }
+    }
+
+    printf("passphrase found !\n");
+
+    /* success ! */
+    response = 1;
+    if(send(sock, &response, 1, 0) < 0)
+    {
+        fprintf(stderr, "error: failed to send response to server\n");
+        close(sock);
+        exit(1);
     }
 
     close(sock);
